@@ -25,6 +25,7 @@ type CardSlot = {
 type CardLink = {
   name: string
   edition: string
+  price: number
   url: string
 }
 
@@ -33,6 +34,7 @@ type Seller = {
   sellerId: string
   storeUrl: string
   cardLinks: CardLink[]
+  total: number
 }
 
 let nextId = 3
@@ -152,23 +154,42 @@ export default function Home() {
           {loading ? 'Searching... (this takes a while)' : `Find Sellers with All ${readyCount} Cards`}
         </button>
 
+        {/* Disclaimer */}
+        {searched && (
+          <p className="text-xs text-gray-600 text-center">
+            Prices shown are the lowest available from each seller. Shipping not included — buying from a single seller is already the most cost-effective option.
+          </p>
+        )}
+
         {sellers.length > 0 && (
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <p className="text-xs text-green-400 tracking-widest uppercase mb-3">
-              {sellers.length} sellers have all cards
+              {sellers.length} sellers have all cards — sorted by price
             </p>
-            {sellers.map(seller => (
+            {sellers.map((seller, i) => (
               <div key={seller.name} className="py-3 border-b border-gray-800 last:border-0">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-bold text-white">{seller.name}</span>
-                  <a
-                    href={seller.storeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-gray-500 hover:text-yellow-400 transition-colors"
-                  >
-                    View store →
-                  </a>
+                  <div className="flex items-center gap-2">
+                    {i === 0 && (
+                      <span className="text-xs bg-yellow-400 text-gray-950 font-bold px-2 py-0.5 rounded">
+                        BEST
+                      </span>
+                    )}
+                    <span className="text-sm font-bold text-white">{seller.name}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-bold text-yellow-400">
+                      ${seller.total.toFixed(2)}
+                    </span>
+                    <a
+                      href={seller.storeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-gray-500 hover:text-yellow-400 transition-colors"
+                    >
+                      Store →
+                    </a>
+                  </div>
                 </div>
                 <div className="flex flex-col gap-1">
                   {seller.cardLinks.map(link => (
@@ -177,9 +198,10 @@ export default function Home() {
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                      className="flex justify-between text-xs text-blue-400 hover:text-blue-300 transition-colors"
                     >
-                      {link.name} — {link.edition} →
+                      <span>{link.name} — {link.edition}</span>
+                      <span>${link.price.toFixed(2)}</span>
                     </a>
                   ))}
                 </div>

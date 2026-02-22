@@ -4,6 +4,7 @@ import { chromium } from 'playwright'
 type SellerEntry = {
   sellerId: string
   productUrl: string
+  price: number
 }
 
 async function getSellersForCard(cardName: string, editionName: string): Promise<Map<string, SellerEntry>> {
@@ -46,14 +47,23 @@ async function getSellersForCard(cardName: string, editionName: string): Promise
       await page.goto(listingUrl, { waitUntil: 'networkidle' })
       await page.waitForTimeout(1500)
 
-      const sellers = await page.$$eval('a.seller-info__name', els =>
+      const sellers = await page.$$eval('.listing-item', els =>
         els.map(el => {
-          const href = (el as HTMLAnchorElement).href
+          const nameEl = el.querySelector('a.seller-info__name') as HTMLAnchorElement | null
+          const priceEl = el.querySelector('.listing-item__listing-data__info__price')
+          if (!nameEl || !priceEl) return null
+
+          const href = nameEl.href
           const parts = href.split('/')
           const sellerId = parts[parts.length - 1]
-          const name = el.textContent?.trim() ?? ''
-          return { name, sellerId }
-        }).filter(s => s.name && s.sellerId)
+          const name = nameEl.textContent?.trim() ?? ''
+
+          // Price looks like "$1.23" — strip $ and parse
+          const priceText = priceEl.textContent?.trim().replace('$', '') ?? '0'
+          const price = parseFloat(priceText) || 0
+
+          return { name, sellerId, price }
+        }).filter(Boolean)
       )
 
       if (sellers.length === 0) {
@@ -61,10 +71,19 @@ async function getSellersForCard(cardName: string, editionName: string): Promise
         break
       }
 
-      sellers.forEach(s => allSellers.set(s.name, {
-        sellerId: s.sellerId,
-        productUrl: baseUrl,
-      }))
+      sellers.forEach(s => {
+        if (!s) return
+        const existing = allSellers.get(s.name)
+        // Keep the lowest price if seller appears on multiple pages
+        if (!existing || s.price < existing.price) {
+          allSellers.set(s.name, {
+            sellerId: s.sellerId,
+            productUrl: baseUrl,
+            price: s.price,
+          })
+        }
+      })
+
       console.log(`Page ${pageNum}: found ${sellers.length} sellers (total so far: ${allSellers.size})`)
     }
 
@@ -94,16 +113,30 @@ export async function POST(request: NextRequest) {
     rest.every(map => map.has(name))
   )
 
-  const sellers = intersection.map(([name, entry]) => ({
-    name,
-    sellerId: entry.sellerId,
-    storeUrl: `https://www.tcgplayer.com/search/magic/product?seller=${entry.sellerId}&productLineName=magic&view=grid`,
-    cardLinks: cards.map((card: any, i: number) => ({
-      name: card.name,
-      edition: card.edition,
-      url: `${sellerMaps[i].get(name)?.productUrl}?seller=${entry.sellerId}`,
-    })),
-  }))
+  const sellers = intersection.map(([name, entry]) => {
+    const cardLinks = cards.map((card: any, i: number) => {
+      const sellerEntry = sellerMaps[i].get(name)
+      return {
+        name: card.name,
+        edition: card.edition,
+        price: sellerEntry?.price ?? 0,
+        url: `${sellerEntry?.productUrl}?seller=${entry.sellerId}`,
+      }
+    })
+
+    const total = cardLinks.reduce((sum: number, c: any) => sum + c.price, 0)
+
+    return {
+      name,
+      sellerId: entry.sellerId,
+      storeUrl: `https://www.tcgplayer.com/search/magic/product?seller=${entry.sellerId}&productLineName=magic&view=grid`,
+      cardLinks,
+      total,
+    }
+  })
+
+  // Sort by total price ascending
+  sellers.sort((a, b) => a.total - b.total)
 
   console.log('Sellers with all cards:', sellers)
 
