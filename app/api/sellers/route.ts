@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { chromium } from 'playwright'
 
-async function getSellersForCard(cardName: string, editionName: string, language: string): Promise<Map<string, string>> {
+type SellerEntry = {
+  sellerId: string
+  productUrl: string
+}
+
+async function getSellersForCard(cardName: string, editionName: string): Promise<Map<string, SellerEntry>> {
   const browser = await chromium.launch({ headless: true })
   const context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -10,7 +15,6 @@ async function getSellersForCard(cardName: string, editionName: string, language
   const page = await context.newPage()
 
   try {
-    // Step 1 — find the right product URL
     const searchUrl = `https://www.tcgplayer.com/search/magic/product?productLineName=magic&q=${encodeURIComponent(cardName)}&view=grid`
     await page.goto(searchUrl, { waitUntil: 'networkidle' })
     await page.waitForTimeout(3000)
@@ -35,12 +39,10 @@ async function getSellersForCard(cardName: string, editionName: string, language
     const baseUrl = match.href.split('?')[0]
     console.log('Found product URL:', baseUrl)
 
-    const allSellers = new Map<string, string>()
+    const allSellers = new Map<string, SellerEntry>()
 
-    // Step 2 — scrape up to 10 pages
     for (let pageNum = 1; pageNum <= 10; pageNum++) {
-      const langParam = language === 'English' ? '&Language=English' : ''
-      const listingUrl = `${baseUrl}?page=${pageNum}${langParam}`
+      const listingUrl = `${baseUrl}?page=${pageNum}&Language=English`
       await page.goto(listingUrl, { waitUntil: 'networkidle' })
       await page.waitForTimeout(1500)
 
@@ -59,7 +61,10 @@ async function getSellersForCard(cardName: string, editionName: string, language
         break
       }
 
-      sellers.forEach(s => allSellers.set(s.name, s.sellerId))
+      sellers.forEach(s => allSellers.set(s.name, {
+        sellerId: s.sellerId,
+        productUrl: baseUrl,
+      }))
       console.log(`Page ${pageNum}: found ${sellers.length} sellers (total so far: ${allSellers.size})`)
     }
 
@@ -74,25 +79,33 @@ async function getSellersForCard(cardName: string, editionName: string, language
 }
 
 export async function POST(request: NextRequest) {
-  const { cardA, cardB, language } = await request.json()
+  const { cards } = await request.json()
 
-  const [sellersA, sellersB] = await Promise.all([
-    getSellersForCard(cardA.name, cardA.edition, language),
-    getSellersForCard(cardB.name, cardB.edition, language),
-  ])
+  const sellerMaps = await Promise.all(
+    cards.map((card: any) => getSellersForCard(card.name, card.edition))
+  )
 
-  console.log('Total sellers for A:', sellersA.size)
-  console.log('Total sellers for B:', sellersB.size)
+  sellerMaps.forEach((map, i) => {
+    console.log(`Total sellers for card ${i + 1}:`, map.size)
+  })
 
-  const both = [...sellersA.entries()]
-    .filter(([name]) => sellersB.has(name))
-    .map(([name, sellerId]) => ({
-      name,
-      sellerId,
-      url: `https://www.tcgplayer.com/search/magic/product?seller=${sellerId}&productLineName=magic&view=grid`,
-    }))
+  const [first, ...rest] = sellerMaps
+  const intersection = [...first.entries()].filter(([name]) =>
+    rest.every(map => map.has(name))
+  )
 
-  console.log('Sellers with both:', both)
+  const sellers = intersection.map(([name, entry]) => ({
+    name,
+    sellerId: entry.sellerId,
+    storeUrl: `https://www.tcgplayer.com/search/magic/product?seller=${entry.sellerId}&productLineName=magic&view=grid`,
+    cardLinks: cards.map((card: any, i: number) => ({
+      name: card.name,
+      edition: card.edition,
+      url: `${sellerMaps[i].get(name)?.productUrl}?seller=${entry.sellerId}`,
+    })),
+  }))
 
-  return NextResponse.json({ sellers: both })
+  console.log('Sellers with all cards:', sellers)
+
+  return NextResponse.json({ sellers })
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 type Edition = {
   edition: string
@@ -14,76 +14,78 @@ type SelectedCard = {
   setCode: string
 } | null
 
-type Seller = {
+type CardSlot = {
+  id: number
+  query: string
+  results: string[]
+  editions: Edition[]
+  selected: SelectedCard
+}
+
+type CardLink = {
   name: string
-  sellerId: string
+  edition: string
   url: string
 }
 
+type Seller = {
+  name: string
+  sellerId: string
+  storeUrl: string
+  cardLinks: CardLink[]
+}
+
+let nextId = 3
+
 export default function Home() {
-  const [queryA, setQueryA] = useState('')
-  const [queryB, setQueryB] = useState('')
-  const [resultsA, setResultsA] = useState<string[]>([])
-  const [resultsB, setResultsB] = useState<string[]>([])
-  const [editionsA, setEditionsA] = useState<Edition[]>([])
-  const [editionsB, setEditionsB] = useState<Edition[]>([])
-  const [selectedA, setSelectedA] = useState<SelectedCard>(null)
-  const [selectedB, setSelectedB] = useState<SelectedCard>(null)
+  const [slots, setSlots] = useState<CardSlot[]>([
+    { id: 1, query: '', results: [], editions: [], selected: null },
+    { id: 2, query: '', results: [], editions: [], selected: null },
+  ])
   const [sellers, setSellers] = useState<Seller[]>([])
   const [loading, setLoading] = useState(false)
   const [searched, setSearched] = useState(false)
-  const [language, setLanguage] = useState<'English' | 'Any'>('English')
 
-  useEffect(() => {
-    if (selectedA || queryA.length < 2) return setResultsA([])
-    const timer = setTimeout(async () => {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(queryA)}`)
-      const data = await res.json()
-      setResultsA(data.slice(0, 8).map((c: any) => c.name))
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [queryA])
+  function updateSlot(id: number, changes: Partial<CardSlot>) {
+    setSlots(prev => prev.map(s => s.id === id ? { ...s, ...changes } : s))
+  }
 
-  useEffect(() => {
-    if (selectedB || queryB.length < 2) return setResultsB([])
-    const timer = setTimeout(async () => {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(queryB)}`)
-      const data = await res.json()
-      setResultsB(data.slice(0, 8).map((c: any) => c.name))
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [queryB])
+  function addSlot() {
+    setSlots(prev => [...prev, { id: nextId++, query: '', results: [], editions: [], selected: null }])
+  }
 
-  async function pickName(name: string, slot: 'A' | 'B') {
-    if (slot === 'A') { setQueryA(name); setResultsA([]) }
-    else { setQueryB(name); setResultsB([]) }
+  function removeSlot(id: number) {
+    setSlots(prev => prev.filter(s => s.id !== id))
+    setSellers([])
+    setSearched(false)
+  }
 
+  async function pickName(id: number, name: string) {
+    updateSlot(id, { query: name, results: [] })
     const res = await fetch(`/api/editions?name=${encodeURIComponent(name)}`)
     const data = await res.json()
-
-    if (slot === 'A') setEditionsA(data)
-    else setEditionsB(data)
+    updateSlot(id, { editions: data })
   }
 
-  function pickEdition(slot: 'A' | 'B', ed: Edition) {
-    const name = slot === 'A' ? queryA : queryB
-    const selected = { name, edition: ed.edition, setCode: ed.setCode }
-    if (slot === 'A') { setSelectedA(selected); setEditionsA([]) }
-    else { setSelectedB(selected); setEditionsB([]) }
+  function pickEdition(id: number, ed: Edition) {
+    const slot = slots.find(s => s.id === id)
+    if (!slot) return
+    updateSlot(id, {
+      selected: { name: slot.query, edition: ed.edition, setCode: ed.setCode },
+      editions: [],
+    })
   }
 
-  function clearCard(slot: 'A' | 'B') {
-    if (slot === 'A') {
-      setSelectedA(null); setQueryA(''); setResultsA([]); setEditionsA([])
-    } else {
-      setSelectedB(null); setQueryB(''); setResultsB([]); setEditionsB([])
-    }
+  function clearSlot(id: number) {
+    updateSlot(id, { query: '', results: [], editions: [], selected: null })
     setSellers([])
     setSearched(false)
   }
 
   async function findSellers() {
-    if (!selectedA || !selectedB) return
+    const selected = slots.map(s => s.selected).filter(Boolean)
+    if (selected.length < 2) return
+
     setLoading(true)
     setSellers([])
     setSearched(false)
@@ -91,7 +93,7 @@ export default function Home() {
     const res = await fetch('/api/sellers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cardA: selectedA, cardB: selectedB, language }),
+      body: JSON.stringify({ cards: selected }),
     })
 
     const data = await res.json()
@@ -100,71 +102,95 @@ export default function Home() {
     setLoading(false)
   }
 
+  const readyCount = slots.filter(s => s.selected).length
+  const canSearch = readyCount >= 2 && !loading
+
   return (
-    <main className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center px-4">
+    <main className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center px-4 py-12">
 
       <h1 className="text-4xl font-bold tracking-widest text-yellow-400 mb-2">TCG FINDER</h1>
-      <p className="text-gray-500 text-sm mb-10">Find TCGplayer sellers who stock both cards you need</p>
+      <p className="text-gray-500 text-sm mb-10">Find TCGplayer sellers who stock all the cards you need</p>
 
       <div className="w-full max-w-md flex flex-col gap-4">
 
-        <CardPicker
-          label="Card A"
-          query={queryA}
-          setQuery={setQueryA}
-          results={resultsA}
-          editions={editionsA}
-          selected={selectedA}
-          onPickName={name => pickName(name, 'A')}
-          onPickEdition={ed => pickEdition('A', ed)}
-          onClear={() => clearCard('A')}
-        />
+        {slots.map((slot, index) => (
+          <CardPicker
+            key={slot.id}
+            label={`Card ${index + 1}`}
+            slot={slot}
+            canRemove={slots.length > 2}
+            onQueryChange={q => {
+              updateSlot(slot.id, { query: q, results: [], editions: [], selected: null })
+              setSellers([])
+              setSearched(false)
+              if (q.length < 2) return
+              setTimeout(async () => {
+                const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`)
+                const data = await res.json()
+                updateSlot(slot.id, { results: data.slice(0, 8).map((c: any) => c.name) })
+              }, 300)
+            }}
+            onPickName={name => pickName(slot.id, name)}
+            onPickEdition={ed => pickEdition(slot.id, ed)}
+            onClear={() => clearSlot(slot.id)}
+            onRemove={() => removeSlot(slot.id)}
+          />
+        ))}
 
-        <CardPicker
-          label="Card B"
-          query={queryB}
-          setQuery={setQueryB}
-          results={resultsB}
-          editions={editionsB}
-          selected={selectedB}
-          onPickName={name => pickName(name, 'B')}
-          onPickEdition={ed => pickEdition('B', ed)}
-          onClear={() => clearCard('B')}
-        />
-
-       
+        <button
+          onClick={addSlot}
+          className="w-full py-2 rounded text-sm text-gray-500 border border-dashed border-gray-800 hover:border-gray-600 hover:text-gray-400 transition-colors"
+        >
+          + Add another card
+        </button>
 
         <button
           onClick={findSellers}
           className="w-full bg-yellow-400 text-gray-950 font-bold text-sm tracking-widest uppercase rounded py-3 mt-2 disabled:opacity-40"
-          disabled={!selectedA || !selectedB || loading}
+          disabled={!canSearch}
         >
-          {loading ? 'Searching... (this takes ~2 min)' : 'Find Sellers with Both'}
+          {loading ? 'Searching... (this takes a while)' : `Find Sellers with All ${readyCount} Cards`}
         </button>
 
         {sellers.length > 0 && (
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
             <p className="text-xs text-green-400 tracking-widest uppercase mb-3">
-              {sellers.length} sellers have both cards
+              {sellers.length} sellers have all cards
             </p>
             {sellers.map(seller => (
-              <a
-                key={seller.name}
-                href={seller.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0 text-sm text-white hover:text-yellow-400 transition-colors"
-              >
-                <span>{seller.name}</span>
-                <span className="text-gray-600 text-xs">View store →</span>
-              </a>
+              <div key={seller.name} className="py-3 border-b border-gray-800 last:border-0">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-bold text-white">{seller.name}</span>
+                  <a
+                    href={seller.storeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-gray-500 hover:text-yellow-400 transition-colors"
+                  >
+                    View store →
+                  </a>
+                </div>
+                <div className="flex flex-col gap-1">
+                  {seller.cardLinks.map(link => (
+                    <a
+                      key={link.name}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      {link.name} — {link.edition} →
+                    </a>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         )}
 
         {sellers.length === 0 && searched && !loading && (
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 text-center text-gray-500 text-sm">
-            No sellers found with both cards. Try different editions.
+            No sellers found with all cards. Try different editions.
           </div>
         )}
 
@@ -173,26 +199,32 @@ export default function Home() {
   )
 }
 
-function CardPicker({ label, query, setQuery, results, editions, selected, onPickName, onPickEdition, onClear }: {
+function CardPicker({ label, slot, canRemove, onQueryChange, onPickName, onPickEdition, onClear, onRemove }: {
   label: string
-  query: string
-  setQuery: (v: string) => void
-  results: string[]
-  editions: Edition[]
-  selected: SelectedCard
+  slot: CardSlot
+  canRemove: boolean
+  onQueryChange: (q: string) => void
   onPickName: (name: string) => void
   onPickEdition: (ed: Edition) => void
   onClear: () => void
+  onRemove: () => void
 }) {
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 relative">
-      <p className="text-xs text-blue-400 tracking-widest uppercase mb-3">{label}</p>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-blue-400 tracking-widest uppercase">{label}</p>
+        {canRemove && (
+          <button onClick={onRemove} className="text-gray-700 hover:text-red-400 text-xs tracking-wide transition-colors">
+            Remove
+          </button>
+        )}
+      </div>
 
-      {selected ? (
+      {slot.selected ? (
         <div className="flex items-center justify-between bg-gray-950 border border-yellow-400/30 rounded px-3 py-2">
           <div>
-            <p className="text-sm text-white">{selected.name}</p>
-            <p className="text-xs text-gray-500">{selected.edition}</p>
+            <p className="text-sm text-white">{slot.selected.name}</p>
+            <p className="text-xs text-gray-500">{slot.selected.edition}</p>
           </div>
           <button onClick={onClear} className="text-gray-600 hover:text-red-400 text-lg ml-3">✕</button>
         </div>
@@ -201,13 +233,13 @@ function CardPicker({ label, query, setQuery, results, editions, selected, onPic
           <input
             className="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm text-white placeholder-gray-600 outline-none focus:border-blue-500"
             placeholder="Card name..."
-            value={query}
-            onChange={e => setQuery(e.target.value)}
+            value={slot.query}
+            onChange={e => onQueryChange(e.target.value)}
           />
 
-          {results.length > 0 && (
+          {slot.results.length > 0 && (
             <div className="absolute left-4 right-4 bg-gray-900 border border-gray-700 rounded-lg mt-1 z-10 overflow-hidden">
-              {results.map(name => (
+              {slot.results.map(name => (
                 <button
                   key={name}
                   onClick={() => onPickName(name)}
@@ -219,11 +251,11 @@ function CardPicker({ label, query, setQuery, results, editions, selected, onPic
             </div>
           )}
 
-          {editions.length > 0 && (
+          {slot.editions.length > 0 && (
             <div className="mt-3">
               <p className="text-xs text-gray-500 uppercase tracking-widest mb-2">Pick an edition</p>
               <div className="max-h-48 overflow-y-auto flex flex-col gap-1">
-                {editions.map(ed => (
+                {slot.editions.map(ed => (
                   <button
                     key={ed.scryfallId}
                     onClick={() => onPickEdition(ed)}
