@@ -157,7 +157,7 @@ export default function Home() {
         {/* Disclaimer */}
         {searched && (
           <p className="text-xs text-gray-600 text-center">
-            Prices shown are the lowest available from each seller. Shipping not included — buying from a single seller is already the most cost-effective option.
+            Prices shown are the lowest available from each seller and may be in any condition. Shipping not included — buying from a single seller is likely the most cost-effective option.
           </p>
         )}
 
