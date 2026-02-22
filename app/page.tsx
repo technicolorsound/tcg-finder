@@ -55,12 +55,21 @@ export default function Home() {
   function addSlot() {
     setSlots(prev => [...prev, { id: nextId++, query: '', results: [], editions: [], selected: null }])
   }
-
+function clearAll() {
+  setSlots([
+    { id: 1, query: '', results: [], editions: [], selected: null },
+    { id: 2, query: '', results: [], editions: [], selected: null },
+  ])
+  setSellers([])
+  setSearched(false)
+}
   function removeSlot(id: number) {
     setSlots(prev => prev.filter(s => s.id !== id))
     setSellers([])
     setSearched(false)
   }
+
+
 
   async function pickName(id: number, name: string) {
     updateSlot(id, { query: name, results: [] })
@@ -145,7 +154,12 @@ export default function Home() {
         >
           + Add another card
         </button>
-
+<button
+  onClick={clearAll}
+  className="w-full py-2 rounded text-sm text-gray-600 hover:text-red-400 border border-dashed border-gray-800 hover:border-red-400 transition-colors"
+>
+  Clear all
+</button>
         <button
           onClick={findSellers}
           className="w-full bg-yellow-400 text-gray-950 font-bold text-sm tracking-widest uppercase rounded py-3 mt-2 disabled:opacity-40"
